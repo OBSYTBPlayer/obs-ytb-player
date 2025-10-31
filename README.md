@@ -1,9 +1,4 @@
-# OBS YouTube Playlist Player (GitHub Pages, no hardcoded playlist)
-
-## Setup (GitHub Pages)
-1. Create a repo (e.g., `obs-youtube-player`) and upload `index.html` to the root of `main`.
-2. Settings → Pages → Source: **Deploy from a branch**, Branch: **main** / **root** → Save.
-3. Use the Pages URL in OBS (**Browser** source, uncheck *Local file*).
+# OBS YouTube Playlist Player
 
 ## URL (playlist param required)
 ```
