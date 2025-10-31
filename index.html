@@ -1,136 +1,137 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>OBS YouTube Playlist Player</title>
-  <meta http-equiv="referrer" content="origin">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    html, body { margin:0; padding:0; overflow:hidden; background:#000; }
-    #player { width:100vw; height:100vh; }
-    #loading {
-      position:absolute; color:#fff; top:50%; left:50%;
-      transform:translate(-50%,-50%); font-family:Arial, sans-serif; font-size:20px;
-    }
-    #error { position:absolute; left:12px; bottom:12px; right:12px; color:#f55; font:14px/1.4 Arial, sans-serif; display:none; }
-    #hint {
-      position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-      color:#ddd; font:16px/1.5 Arial, sans-serif; text-align:center; padding:24px;
-    }
-    #hint code { color:#fff; background:#111; padding:2px 6px; border-radius:4px; }
-  </style>
+    <meta charset="UTF-8">
+    <title>YouTube Playlist OBS Player</title>
+    <style>
+      html, body { margin: 0; padding: 0; overflow: hidden; background-color: black; }
+      #loading {
+          position: absolute;
+          color: white;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          font-family: Arial, sans-serif;
+          font-size: 20px;
+      }
+      #message {
+          position: absolute;
+          color: white;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          font-family: Arial, sans-serif;
+          font-size: 18px;
+          text-align: center;
+      }
+    </style>
 </head>
 <body>
-  <div id="player"></div>
-  <div id="loading">Loading...</div>
-  <div id="error"></div>
-  <div id="hint" style="display:none;">
-    Missing <code>?playlist=YOUR_PLAYLIST_ID</code> parameter.<br>
-    Example: <code>https://YOUR_PAGES_URL/?playlist=PLxxxxxxxxxxxx&volume=75</code>
-  </div>
+<div id="player"></div>
+<div id="loading">Loading...</div>
+<div id="message" style="display:none;">Missing playlist parameter in URL.<br>Please set ?playlist=YOUR_PLAYLIST_ID</div>
 
-  <script src="https://www.youtube.com/iframe_api"></script>
-  <script>
-    let player, updater, retryTimer;
-    const qp = new URLSearchParams(location.search);
-    const playlistId  = qp.get('playlist'); // no default
-    const volumeLevel = Math.max(0, Math.min(100, parseInt(qp.get('volume') || '50', 10) || 50));
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+  // Parse URL parameters
+  const urlParams = new URLSearchParams(window.location.search);
+  const playlistId = urlParams.get('playlist');
+  const volumeLevel = parseInt(urlParams.get('volume')) || 50;
 
-    if (!playlistId) {
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('hint').style.display = 'flex';
-    }
+  // If playlist parameter missing, show message and do nothing
+  if (!playlistId) {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('message').style.display = 'block';
+  }
 
-    const storageKey  = playlistId ? `yt-player-${playlistId}` : 'yt-player-missing';
+  let player, updater;
+  const storageKey = playlistId ? `yt-player-${playlistId}` : null;
 
-    function onYouTubeIframeAPIReady() {
-      if (!playlistId) return;
-      const saved = JSON.parse(localStorage.getItem(storageKey) || '{"index":0,"time":0}');
-      player = new YT.Player('player', {
-        width: 1920,
-        height: 1080,
-        host: 'https://www.youtube-nocookie.com',
-        playerVars: {
-          origin: location.origin || (location.protocol + '//' + location.host),
-          listType: 'playlist',
-          list: playlistId,
-          autoplay: 1,
-          controls: 0,
-          rel: 0
-        },
-        events: {
-          onReady: () => onReady(saved),
-          onStateChange: onStateChange,
-          onError: onError
-        }
-      });
-    }
+  function onYouTubeIframeAPIReady() {
+    if (!playlistId) return; // no playlist
 
-    function onReady(saved) {
-      hideLoading();
-      player.setVolume(volumeLevel);
-      player.playVideoAt(saved.index || 0);
-      setTimeout(() => player.seekTo(saved.time || 0, true), 1000);
-    }
+    // Load saved state from localStorage
+    const saved = JSON.parse(localStorage.getItem(storageKey) || 'null') || {index: 0, time: 0};
 
-    function onStateChange(ev) {
-      clearInterval(updater);
-      if (ev.data === YT.PlayerState.PLAYING) {
-        updater = setInterval(() => {
-          try {
-            localStorage.setItem(storageKey, JSON.stringify({
-              time: player.getCurrentTime(),
-              index: player.getPlaylistIndex()
-            }));
-          } catch (_) {}
-        }, 1000);
-      } else if (ev.data === YT.PlayerState.ENDED) {
-        const list = player.getPlaylist();
-        const len  = Array.isArray(list) ? list.length : 0;
-        const next = len ? (player.getPlaylistIndex() + 1) % len : 0;
-        localStorage.setItem(storageKey, JSON.stringify({ time: 0, index: next }));
-        player.playVideoAt(next);
-      }
-    }
-
-    function onError(e) {
-      showError(`YouTube error ${e?.data ?? ''}. Retrying...`);
-      clearTimeout(retryTimer);
-      retryTimer = setTimeout(() => {
-        try {
-          const iframe = document.querySelector('iframe');
-          if (iframe && iframe.src.includes('youtube-nocookie.com')) {
-            iframe.src = iframe.src.replace('youtube-nocookie.com', 'youtube.com');
-          } else {
-            location.reload();
-          }
-        } catch(_) {
-          location.reload();
-        }
-      }, 1200);
-    }
-
-    document.addEventListener('visibilitychange', () => {
-      if (!player) return;
-      clearInterval(updater);
-      if (document.hidden) {
-        try {
-          localStorage.setItem(storageKey, JSON.stringify({
-            time: player.getCurrentTime(),
-            index: player.getPlaylistIndex()
-          }));
-        } catch (_) {}
-        player.pauseVideo();
-      } else {
-        const saved = JSON.parse(localStorage.getItem(storageKey) || '{"index":0,"time":0}');
-        player.playVideoAt(saved.index || 0);
-        setTimeout(() => player.seekTo(saved.time || 0, true), 700);
-        player.playVideo();
+    player = new YT.Player('player', {
+      width: 1920,
+      height: 1080,
+      playerVars: {
+        listType: 'playlist',
+        list: playlistId,
+        autoplay: 1,
+        controls: 0,
+        rel: 0
+      },
+      events: {
+        'onReady': function() { onPlayerReady(saved); },
+        'onStateChange': onPlayerStateChange
       }
     });
+  }
 
-    function hideLoading(){ const el = document.getElementById('loading'); if (el) el.style.display='none'; }
-    function showError(msg){ const el = document.getElementById('error'); if (el){ el.textContent = msg; el.style.display='block'; } }
-  </script>
+  function onPlayerReady(saved) {
+    player.setVolume(volumeLevel);
+    // Always start at saved index/time
+    if (saved && typeof saved.index === 'number') {
+        player.playVideoAt(saved.index);
+        setTimeout(function() {
+            if (saved.time) player.seekTo(saved.time, true);
+            player.playVideo();
+            document.getElementById('loading').style.display = 'none';
+        }, 1000);
+    } else {
+        player.playVideo();
+        document.getElementById('loading').style.display = 'none';
+    }
+  }
+
+  function onPlayerStateChange(event) {
+    clearInterval(updater);
+    // When video playing, periodically save index and time
+    if (event.data === YT.PlayerState.PLAYING) {
+      updater = setInterval(function() {
+        localStorage.setItem(storageKey, JSON.stringify({
+          index: player.getPlaylistIndex(),
+          time: player.getCurrentTime()
+        }));
+      }, 1000);
+    }
+
+    // When ended, update to next index and reset time
+    if (event.data === YT.PlayerState.ENDED) {
+      let nextIndex = player.getPlaylistIndex() + 1;
+      // Loop if at last video
+      if (nextIndex >= player.getPlaylist().length) {
+        nextIndex = 0;
+      }
+      localStorage.setItem(storageKey, JSON.stringify({index: nextIndex, time: 0}));
+      player.playVideoAt(nextIndex);
+    }
+  }
+
+  // On visibility change, pause/resume and save state
+  document.addEventListener('visibilitychange', function() {
+    if (!playlistId) return;
+    if (document.hidden) {
+      clearInterval(updater);
+      localStorage.setItem(storageKey, JSON.stringify({
+        index: player.getPlaylistIndex(),
+        time: player.getCurrentTime()
+      }));
+      player.pauseVideo();
+    } else {
+      // When back to visible, read saved state and resume
+      const saved = JSON.parse(localStorage.getItem(storageKey) || 'null') || {index: 0, time: 0};
+      // Load correct video
+      player.playVideoAt(saved.index);
+      // Wait some time before seeking to ensure video loads
+      setTimeout(function() {
+        if (saved.time) player.seekTo(saved.time, true);
+        player.playVideo();
+      }, 1000);
+    }
+  });
+</script>
 </body>
 </html>
